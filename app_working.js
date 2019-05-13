@@ -12,8 +12,14 @@ const FacebookStrategy = require('passport-facebook').Strategy;
 const LinkedInStrategy = require('passport-linkedin-oauth2').Strategy;
 // const LinkedInStrategy = require('passport-linkedin').Strategy;
 const findOrCreate = require('mongoose-findorcreate');
+const https = require('https');
 
 const app = express();
+
+// linkedin app settings
+const Linkedin = require('node-linkedin')(process.env.LINKEDIN_KEY, process.env.LINKEDIN_SECRET);
+Linkedin.auth.setCallback('http://localhost:3000/auth/google/secrets');
+
 
 app.use(express.static('public'));
 app.set('view engine', 'ejs');
@@ -85,28 +91,38 @@ passport.use(new FacebookStrategy({
   }
 ));
 
-
-
-
-
 passport.use(new LinkedInStrategy({
-  clientID: process.env.LINKEDIN_KEY,
-  clientSecret: process.env.LINKEDIN_SECRET,
-  callbackURL: "http://localhost:3000/auth/linkedin/secrets",
-  scope: ['r_emailaddress', 'r_basicprofile'],
-}, function(accessToken, refreshToken, profile, done) {
-  // asynchronous verification, for effect...
-  process.nextTick(function () {
-    // To keep the example simple, the user's LinkedIn profile is returned to
-    // represent the logged-in user. In a typical application, you would want
-    // to associate the LinkedIn account with a user record in your database,
-    // and return that user instead.
-    return done(null, profile);
-  });
+    clientID: process.env.LINKEDIN_KEY,
+    clientSecret: process.env.LINKEDIN_SECRET,
+    callbackURL: "http://localhost:3000/auth/linkedin/secrets",
+    scope: ['r_emailaddress', 'r_liteprofile', 'w_member_social'],
+    passReqToCallback: true,
+    userProfileURL: 'https://api.linkedin.com/v2/me'
+},
+function (req, accessToken, refreshToken, profile, done) {
+	req.session.accessToken = accessToken;
+  console.log(accessToken);
+    process.nextTick(function () {
+        return done(null, profile);
+	});
 }));
 
-
-
+//Original
+// passport.use(new LinkedInStrategy({
+//   clientID: process.env.LINKEDIN_KEY,
+//   clientSecret: process.env.LINKEDIN_SECRET,
+//   callbackURL: "http://localhost:3000/auth/linkedin/secrets",
+//   scope: ['r_emailaddress', 'r_basicprofile'],
+// }, function(accessToken, refreshToken, profile, done) {
+//   // asynchronous verification, for effect...
+//   process.nextTick(function () {
+//     // To keep the example simple, the user's LinkedIn profile is returned to
+//     // represent the logged-in user. In a typical application, you would want
+//     // to associate the LinkedIn account with a user record in your database,
+//     // and return that user instead.
+//     return done(null, profile);
+//   });
+// }));
 
 
 app.get('/', function(req, res){
@@ -136,22 +152,64 @@ app.get('/auth/facebook/secrets',
     res.redirect('/');
   });
 
-
-
-
-
-  //linkedin authentication
+  // linkedin - for auth
   app.get('/auth/linkedin',
-  passport.authenticate('linkedin'));
+    passport.authenticate('linkedin', { state: 'SOME STATE'  }),
+    function(req, res){
+      // The request will be redirected to LinkedIn for authentication, so this
+      // function will not be called.
+  });
 
-  //linkedin callback
-  app.get('/auth/linkedin/secrets',
-    passport.authenticate('linkedin', { failureRedirect: '/login' }),
-    function(req, res) {
-      // Successful authentication, redirect home.
+  // linkedin - for callback
+  app.get('/auth/linkedin/secrets', passport.authenticate('linkedin', { failureRedirect: '/' }),
+  function (req, res) {
       res.redirect('/');
-    });
+  });
 
+
+  app.get('/companies', function (req, res) {
+
+      var user_companies = null;
+      if (req.session.accessToken != undefined) {
+          var linkedin = Linkedin.init(req.session.accessToken);
+          linkedin.companies.asAdmin(function (err, companies) {
+              this.user_companies = companies;
+
+              res.json(this.user_companies);
+              // now use this data in view
+              // e.g.
+              // res.render('index', { companies: user_companies });
+          });
+      }
+      else
+      {
+          console.log(req.session.accessToken);
+          res.render('home', { companies: user_companies });
+      }
+  });
+
+
+  // // linkedin authentication
+  // app.get('/auth/linkedin',
+  //   passport.authenticate('linkedin'),
+  //   function(req, res){
+  //     // The request will be redirected to LinkedIn for authentication, so this
+  //     // function will not be called.
+  //   });
+
+  // // linkedin callback
+  // app.get('/auth/linkedin/secrets', passport.authenticate('linkedin', {
+  //   successRedirect: '/',
+  //   failureRedirect: '/login'
+  // }));
+
+  // original
+  // app.get('/auth/linkedin/secrets',
+  //   passport.authenticate('linkedin', { failureRedirect: '/login' }),
+  //   function(req, res) {
+  //     // Successful authentication, redirect home.
+  //     res.redirect('/');
+  //   });
 
 
 
